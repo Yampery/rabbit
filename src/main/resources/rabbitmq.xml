@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:rabbit="http://www.springframework.org/schema/rabbit"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+     http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+     http://www.springframework.org/schema/beans
+     http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+     http://www.springframework.org/schema/rabbit
+     http://www.springframework.org/schema/rabbit/spring-rabbit-1.7.xsd http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd">
+    <context:property-placeholder location="rabbitmq.properties"/>
+    <!--配置connection-factory，指定连接rabbit server参数 -->
+    <rabbit:connection-factory id="connectionFactory"
+                       username="${mq.user}" password="${mq.password}"
+                       host="${mq.host}" port="${mq.port}" virtual-host="${mq.vhost}" />
+
+    <!--定义rabbit template用于数据的接收和发送 -->
+    <rabbit:template id="amqpTemplate" connection-factory="connectionFactory" />
+
+    <!--通过指定下面的admin信息，当前producer中的exchange和queue会在rabbitmq服务器上自动生成 -->
+    <rabbit:admin connection-factory="connectionFactory" />
+
+    <!--定义queue -->
+    <rabbit:queue name="${sms.queue}" durable="true" auto-delete="false" exclusive="false" />
+    <!-- 创建延迟，有消息有效期的队列 -->
+    <rabbit:queue name="${sms.delay.queue}" durable="true" auto-delete="false">
+        <rabbit:queue-arguments>
+            <entry key="x-message-ttl">
+                <!-- 队列默认消息过期时间 -->
+                <value type="java.lang.Long">3600000</value>
+            </entry>
+            <!-- 消息过期根据重新路由 -->
+            <entry key="x-dead-letter-exchange" value="${sms.exchange}"/>
+        </rabbit:queue-arguments>
+    </rabbit:queue>
+
+    <!-- 定义direct exchange，sms_queue -->
+    <rabbit:direct-exchange name="${sms.exchange}" durable="true" auto-delete="false">
+        <rabbit:bindings>
+            <rabbit:binding queue="${sms.queue}" key="${sms.route.key}"/>
+        </rabbit:bindings>
+    </rabbit:direct-exchange>
+    <!-- 延迟消息配置 -->
+    <rabbit:direct-exchange name="${sms.delay.exchange}" durable="true" auto-delete="false">
+        <rabbit:bindings>
+            <rabbit:binding queue="${sms.delay.queue}" key="${sms.route.key}"/>
+        </rabbit:bindings>
+    </rabbit:direct-exchange>
+
+    <!-- 消息接收者 -->
+    <bean id="messageReceiver" class="git.yampery.consumer.MsgConsumer"/>
+    <!-- queue litener  观察 监听模式 当有消息到达时会通知监听在对应的队列上的监听对象-->
+    <rabbit:listener-container connection-factory="connectionFactory" prefetch="${sms.prefetch}">
+        <rabbit:listener queues="${sms.queue}" ref="messageReceiver"/>
+    </rabbit:listener-container>
+</beans>
